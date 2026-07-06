@@ -246,8 +246,20 @@ def check_permission_and_rules(name: str, args: dict) -> bool:
         if reason:
             print(f'\n {reason} is not allowed.')
             return False
+    elif name in ["write_file", "edit_file"]:
+        path = str(args.get("path", ""))
+        if not path:
+            print(f"Error: No path provided for tool '{name}'.")
+            return False
+        full_path = (WORKDIR / path).resolve()
+        if not full_path.is_relative_to(WORKDIR):
+            print(f"Permission denied: Attempt to access '{full_path}' outside of workspace.")
+            return False
+        if any(p in path for p in ["/etc", "/bin", "/boot", "/sys"]):
+            print("Writing system path is not allowed.")
+            return False
     
-    reason = check_permission(args.get("command", ""))
+    reason = check_rules(name, args)
     if reason:
         decision = ask_user(name, args, reason)
         if decision == "deny":
@@ -299,19 +311,18 @@ def agent_loop(messages):
                     "content": f"Permission denied for tool '{tool.function.name}' with arguments {args}."
                 })
                 continue
-
-
-            handler = TOOL_HANDLERS[tool.function.name]
-            if handler is None:
-                raise ValueError(f"Unknown tool {tool.function.name}")
-            try:
-                output = handler(args)
-            except Exception as e:
-                output = str(e)
-            results.append({
-                "role": "tool",
-                "tool_call_id": tool.id,
-                "content": output
+            else:
+                handler = TOOL_HANDLERS[tool.function.name]
+                if handler is None:
+                    raise ValueError(f"Unknown tool {tool.function.name}")
+                try:
+                    output = handler(args)
+                except Exception as e:
+                    output = str(e)
+                results.append({
+                    "role": "tool",
+                    "tool_call_id": tool.id,
+                    "content": output
             })
         messages.extend(results)
 
